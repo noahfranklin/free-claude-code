@@ -15,6 +15,7 @@ from api.optimization_handlers import try_optimizations
 from api.provider_execution import ProviderExecutionService, TokenCounter
 from api.request_errors import require_non_empty_messages, unexpected_http_exception
 from api.response_streams import anthropic_sse_streaming_response
+from api.usage import Usage
 from api.web_tools.egress import WebFetchEgressPolicy, web_fetch_allowed_scheme_set
 from api.web_tools.request import (
     is_web_server_tool_request,
@@ -50,6 +51,7 @@ class MessagesHandler:
         token_counter: TokenCounter = get_token_count,
         provider_execution: ProviderExecutionService | None = None,
         model_health: ModelHealth | None = None,
+        usage: Usage | None = None,
     ) -> None:
         self._settings = settings
         self._model_router = model_router or ModelRouter(settings)
@@ -59,6 +61,7 @@ class MessagesHandler:
             provider_getter,
             token_counter=token_counter,
             model_health=model_health,
+            usage=usage,
         )
         self._message_intercepts: tuple[MessageIntercept, ...] = (
             self._intercept_web_server_tool,

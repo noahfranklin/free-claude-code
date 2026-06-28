@@ -36,6 +36,7 @@ def build_messages_handler(request: Request, settings: Settings) -> MessagesHand
         provider_getter=_provider_getter(request, settings),
         token_counter=get_token_count,
         model_health=dependencies.maybe_model_health(request.app),
+        usage=dependencies.maybe_usage(request.app),
     )
 
 
@@ -56,6 +57,7 @@ def get_responses_handler(
         settings,
         provider_getter=_provider_getter(request, settings),
         model_health=dependencies.maybe_model_health(request.app),
+        usage=dependencies.maybe_usage(request.app),
     )
 
 

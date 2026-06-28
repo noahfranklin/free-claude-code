@@ -17,6 +17,7 @@ from api.request_errors import (
     require_non_empty_messages,
 )
 from api.response_streams import openai_responses_sse_streaming_response
+from api.usage import Usage
 from config.settings import Settings
 from core.anthropic import get_user_facing_error_message
 from core.openai_responses import OpenAIResponsesAdapter
@@ -38,6 +39,7 @@ class ResponsesHandler:
         responses_adapter: OpenAIResponsesAdapter | None = None,
         provider_execution: ProviderExecutionService | None = None,
         model_health: ModelHealth | None = None,
+        usage: Usage | None = None,
     ) -> None:
         self._settings = settings
         self._model_router = model_router or ModelRouter(settings)
@@ -46,6 +48,7 @@ class ResponsesHandler:
             settings,
             provider_getter,
             model_health=model_health,
+            usage=usage,
         )
 
     async def create(self, request_data: OpenAIResponsesRequest) -> object:

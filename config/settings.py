@@ -155,6 +155,11 @@ class Settings(BaseSettings):
         default=60.0, validation_alias="HTTP_STREAM_IDLE_TIMEOUT"
     )
 
+    # ==================== Usage Analytics ====================
+    # Soft token budget (input + output) used to render a "% of budget" gauge on
+    # the admin dashboard. 0 disables the gauge. Display-only; never enforced.
+    usage_token_budget: int = Field(default=0, validation_alias="USAGE_TOKEN_BUDGET")
+
     # ==================== Model Health Tracking ====================
     # Track which advertised models are in working condition and (optionally)
     # hide broken ones from GET /v1/models so the picker only lists usable models.

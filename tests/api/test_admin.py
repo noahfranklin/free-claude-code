@@ -51,6 +51,24 @@ def test_admin_page_is_loopback_only(monkeypatch, tmp_path):
     assert remote_client.get("/admin").status_code == 403
 
 
+def test_admin_serves_vendored_chart_js(monkeypatch, tmp_path):
+    _set_home(monkeypatch, tmp_path)
+    app = create_app(lifespan_enabled=False)
+
+    response = _local_client(app).get("/admin/assets/vendor/chart.umd.min.js")
+    assert response.status_code == 200
+    assert response.text  # the bundled Chart.js must actually load for charts to render
+
+
+def test_admin_vendor_asset_rejects_unknown_and_remote(monkeypatch, tmp_path):
+    _set_home(monkeypatch, tmp_path)
+    app = create_app(lifespan_enabled=False)
+
+    assert _local_client(app).get("/admin/assets/vendor/secrets.js").status_code == 404
+    remote_client = TestClient(app, client=("203.0.113.10", 50000))
+    assert remote_client.get("/admin/assets/vendor/chart.umd.min.js").status_code == 403
+
+
 def test_admin_page_no_longer_renders_generated_env_panel(monkeypatch, tmp_path):
     _set_home(monkeypatch, tmp_path)
     app = create_app(lifespan_enabled=False)

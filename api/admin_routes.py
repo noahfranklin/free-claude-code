@@ -26,12 +26,13 @@ from .admin_config.persistence import validate_updates, write_managed_env
 from .admin_config.status import provider_config_status
 from .admin_config.values import load_config_response
 from .admin_urls import local_admin_url
-from .dependencies import maybe_model_health
+from .dependencies import maybe_model_health, maybe_usage
 from .model_health import ModelHealth
 from .model_health_probe import probe_model_health
 from .models.anthropic import MessagesRequest
 from .response_streams import anthropic_sse_streaming_response
 from .routes import build_messages_handler
+from .usage import Usage
 
 router = APIRouter()
 
@@ -44,6 +45,13 @@ LOCAL_PROVIDER_PATHS = {
 
 
 DEFAULT_CHAT_MAX_TOKENS = 4096
+
+USAGE_RANGE_SECONDS: dict[str, int] = {
+    "1h": 60 * 60,
+    "24h": 24 * 60 * 60,
+    "7d": 7 * 24 * 60 * 60,
+}
+DEFAULT_USAGE_RANGE = "24h"
 
 
 class AdminConfigPayload(BaseModel):
@@ -117,6 +125,14 @@ async def admin_asset(filename: str, request: Request):
     if filename not in {"admin.css", "admin.js"}:
         raise HTTPException(status_code=404, detail="Admin asset not found")
     return _asset_response(filename)
+
+
+@router.get("/admin/assets/vendor/{filename}", include_in_schema=False)
+async def admin_vendor_asset(filename: str, request: Request):
+    require_loopback_admin(request)
+    if filename != "chart.umd.min.js":
+        raise HTTPException(status_code=404, detail="Admin asset not found")
+    return _asset_response(f"vendor/{filename}")
 
 
 @router.get("/admin/api/config")
@@ -286,6 +302,36 @@ async def models_health_check(request: Request):
     runtime = _provider_runtime_for_admin(request, settings)
     health = _model_health_for_admin(request)
     return await probe_model_health(settings=settings, runtime=runtime, health=health)
+
+
+@router.get("/admin/api/usage")
+async def admin_usage(request: Request, range: str = DEFAULT_USAGE_RANGE):
+    require_loopback_admin(request)
+    settings = get_cached_settings()
+    range_seconds = USAGE_RANGE_SECONDS.get(
+        range, USAGE_RANGE_SECONDS[DEFAULT_USAGE_RANGE]
+    )
+    tracker = _usage_for_admin(request)
+    snapshot = tracker.snapshot(range_seconds)
+    snapshot["budget"] = _usage_budget(settings, snapshot["totals"])
+    return snapshot
+
+
+def _usage_budget(settings: Settings, totals: dict[str, Any]) -> dict[str, Any]:
+    """Compute the dashboard token-budget gauge from settings + window totals."""
+    limit = int(settings.usage_token_budget)
+    used = int(totals.get("tokens_in", 0)) + int(totals.get("tokens_out", 0))
+    percent = round(used / limit * 100, 1) if limit > 0 else 0.0
+    return {"token_limit": limit, "tokens_used": used, "percent_used": percent}
+
+
+def _usage_for_admin(request: Request) -> Usage:
+    usage = maybe_usage(request.app)
+    if usage is not None:
+        return usage
+    usage = Usage()
+    request.app.state.usage = usage
+    return usage
 
 
 def _model_health_for_admin(request: Request) -> ModelHealth:

@@ -23,35 +23,102 @@
         </div>
         <nav id="sectionNav" class="section-nav" aria-label="Admin views"></nav>
         <div class="sidebar-foot">
-          Local-only admin · 127.0.0.1<br />
+          Local-only console · 127.0.0.1<br />
           Edit keys, route models, check provider health.
         </div>
       </aside>
 
       <main class="main">
         <header class="topbar">
-          <div>
-            <h2 id="pageTitle">Providers</h2>
-            <p class="subtitle">
-              Configure providers, route models, and verify what's working — all locally.
+          <div class="topbar-titles">
+            <h2 id="pageTitle">Dashboard</h2>
+            <p class="subtitle" id="pageSubtitle">
+              Live usage, providers, and model health — all on your machine.
             </p>
+          </div>
+          <div class="topbar-right">
+            <button
+              id="themeChip"
+              class="theme-chip"
+              type="button"
+              aria-label="Toggle color theme"
+            >
+              <span class="theme-chip-icon" id="themeChipIcon"></span>
+              <span id="themeChipLabel">Theme</span>
+            </button>
+            <div class="avatar" title="Free Claude Code">FC</div>
           </div>
         </header>
 
         <div id="adminViews" class="admin-views">
-          <section id="view-providers" class="admin-view active" data-view="providers">
+          <!-- ----------------------------------------------- Dashboard -->
+          <section id="view-dashboard" class="admin-view active" data-view="dashboard">
+            <div class="dash-toolbar">
+              <div class="range-tabs" id="rangeTabs" role="tablist" aria-label="Time range">
+                <button type="button" class="range-tab" data-range="1h" role="tab">1h</button>
+                <button type="button" class="range-tab active" data-range="24h" role="tab" aria-selected="true">24h</button>
+                <button type="button" class="range-tab" data-range="7d" role="tab">7d</button>
+              </div>
+              <button id="dashRefresh" class="test-button" type="button">Refresh</button>
+            </div>
+
+            <div id="dashEmpty" class="empty-banner" hidden>
+              No usage data yet — traffic will appear here once requests flow through the proxy.
+            </div>
+
+            <div id="statRow" class="stat-row"></div>
+
+            <div id="budgetCard" class="card budget-card" hidden>
+              <div class="budget-head">
+                <h3>Token budget</h3>
+                <span id="budgetPercent" class="budget-percent"></span>
+              </div>
+              <div class="budget-track"><div id="budgetFill" class="budget-fill"></div></div>
+              <div id="budgetMeta" class="budget-meta"></div>
+            </div>
+
+            <div class="chart-grid">
+              <div class="card chart-card chart-card-wide">
+                <div class="card-head"><h3>Requests &amp; output tokens</h3></div>
+                <div class="chart-canvas-wrap"><canvas id="lineChart"></canvas></div>
+              </div>
+              <div class="card chart-card">
+                <div class="card-head"><h3>Requests by provider</h3></div>
+                <div class="chart-canvas-wrap"><canvas id="doughnutChart"></canvas></div>
+              </div>
+              <div class="card chart-card chart-card-wide">
+                <div class="card-head"><h3>Top models by requests</h3></div>
+                <div class="chart-canvas-wrap"><canvas id="barChart"></canvas></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3>Recent activity</h3></div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Model</th>
+                      <th>Provider</th>
+                      <th>Status</th>
+                      <th>Tokens (in / out)</th>
+                      <th>Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recentBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- ----------------------------------------------- Providers -->
+          <section id="view-providers" class="admin-view" data-view="providers" hidden>
             <section class="provider-strip" aria-label="Provider status">
               <div class="strip-header">
                 <h3>Providers</h3>
-                <div class="strip-actions">
-                  <span id="modelHealthMode" class="field-source"></span>
-                  <button id="checkModelsButton" class="test-button" type="button">
-                    Check working models
-                  </button>
-                </div>
               </div>
               <div id="providerGrid" class="provider-grid"></div>
-              <div id="modelHealthSummary" class="model-health-summary"></div>
             </section>
             <div
               id="providersSections"
@@ -60,6 +127,83 @@
             ></div>
           </section>
 
+          <!-- ----------------------------------------------- Models -->
+          <section id="view-models" class="admin-view" data-view="models" hidden>
+            <div id="modelsStatRow" class="stat-row"></div>
+            <section class="provider-strip" aria-label="Model health">
+              <div class="strip-header">
+                <h3>Model health</h3>
+                <div class="strip-actions">
+                  <span id="modelHealthMode" class="field-source"></span>
+                  <button id="refreshModelsButton" class="test-button" type="button">
+                    Refresh model list
+                  </button>
+                  <button id="checkModelsButton" class="test-button" type="button">
+                    Check working models
+                  </button>
+                </div>
+              </div>
+              <div id="modelHealthSummary" class="model-health-summary"></div>
+            </section>
+          </section>
+
+          <!-- ----------------------------------------------- Chat -->
+          <section id="view-chat" class="admin-view chat-view" data-view="chat" hidden>
+            <div class="chat-apps">
+              <aside class="chat-list-pane" aria-label="Models">
+                <div class="chat-list-head">
+                  <input
+                    id="chatSearch"
+                    class="chat-search"
+                    type="search"
+                    placeholder="Search models"
+                    aria-label="Search models"
+                  />
+                </div>
+                <div id="chatModelList" class="chat-model-list" role="listbox"></div>
+              </aside>
+
+              <div class="chat-thread-pane">
+                <div class="chat-thread-head">
+                  <div class="chat-peer">
+                    <div id="chatPeerAvatar" class="chat-avatar">·</div>
+                    <div class="chat-peer-text">
+                      <strong id="chatPeerName">Select a model</strong>
+                      <span id="chatPeerSub" class="chat-peer-sub"></span>
+                    </div>
+                  </div>
+                  <button id="chatNew" class="ghost-button" type="button">New chat</button>
+                </div>
+
+                <div id="chatScroll" class="chat-scroll">
+                  <div id="chatEmpty" class="chat-empty">
+                    <div class="chat-empty-mark">FC</div>
+                    <h3>Pick a model to start</h3>
+                    <p>Chat through your configured free providers, fully local.</p>
+                  </div>
+                  <div id="chatLog" class="chat-log" aria-live="polite"></div>
+                </div>
+
+                <div class="chat-composer-wrap">
+                  <form id="chatForm" class="chat-composer">
+                    <textarea
+                      id="chatInput"
+                      class="chat-input"
+                      rows="1"
+                      placeholder="Message Free Claude Code…"
+                      aria-label="Message"
+                    ></textarea>
+                    <div class="chat-composer-bar">
+                      <span class="chat-composer-hint">Enter to send · Shift+Enter for newline</span>
+                      <button id="chatSend" class="primary-button" type="submit">Send</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ----------------------------------------------- Config -->
           <section id="view-model_config" class="admin-view" data-view="model_config" hidden>
             <div
               id="modelConfigSections"
@@ -68,59 +212,13 @@
             ></div>
           </section>
 
+          <!-- ----------------------------------------------- Messaging -->
           <section id="view-messaging" class="admin-view" data-view="messaging" hidden>
             <div
               id="messagingSections"
               class="form-sections"
               aria-label="Messaging configuration"
             ></div>
-          </section>
-
-          <section id="view-chat" class="admin-view chat-view" data-view="chat" hidden>
-            <div class="chat-shell">
-              <div id="chatScroll" class="chat-scroll">
-                <div id="chatEmpty" class="chat-empty">
-                  <div class="chat-empty-mark">FC</div>
-                  <h3>How can I help today?</h3>
-                  <p>Chat through your configured free providers, fully local.</p>
-                </div>
-                <div id="chatLog" class="chat-log" aria-live="polite"></div>
-              </div>
-              <div class="chat-composer-wrap">
-                <form id="chatForm" class="chat-composer">
-                  <textarea
-                    id="chatInput"
-                    class="chat-input"
-                    rows="1"
-                    placeholder="Message Free Claude Code…"
-                    aria-label="Message"
-                  ></textarea>
-                  <div class="chat-composer-bar">
-                    <select
-                      id="chatModel"
-                      class="chat-model"
-                      aria-label="Model"
-                    ></select>
-                    <div class="chat-composer-actions">
-                      <button
-                        id="chatNew"
-                        class="ghost-button"
-                        type="button"
-                      >
-                        New chat
-                      </button>
-                      <button
-                        id="chatSend"
-                        class="primary-button"
-                        type="submit"
-                      >
-                        Send
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </div>
           </section>
         </div>
       </main>
@@ -137,6 +235,7 @@
         </div>
       </footer>
     </div>
+    <script src="/admin/assets/vendor/chart.umd.min.js"></script>
     <script src="/admin/assets/admin.js"></script>
   </body>
 </html>

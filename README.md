@@ -20,13 +20,14 @@ Fork of [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-cla
 
 </div>
 
-> ### Fixed version — 2.5.0 (2026-06-28)
+> ### Fixed version — 2.7.0 (2026-06-28)
 >
-> This fork ships three reliability fixes on top of the upstream base (forked at 2.3.20):
+> This fork builds on the upstream base (forked at 2.3.20) with reliability fixes and a redesigned, fully offline Admin UI:
 >
-> - **Stream idle-timeout watchdog.** New `HTTP_STREAM_IDLE_TIMEOUT` (default 60s). If an upstream provider accepts a request but sends no data within the window, the proxy aborts with a clean Anthropic error instead of hanging for the full 300s read-timeout (fixes a ~5-minute silent hang when Claude Code auto-selected a non-responding NVIDIA NIM model).
-> - **Clean missing-key error.** A provider with no API key now returns a proper Anthropic `401 authentication_error` (naming the env var and where to get a key) instead of a malformed HTTP 500.
-> - **Working-models-only model picker.** New model-health tracking reactively hides models that error or time out in real use from `/v1/models` until a cooldown elapses, plus a proactive Admin UI "Check working models" health-check across all credentialed providers.
+> - **Admin Dashboard (2.7.0).** A DashWind-style admin shell with an Analytics dashboard (stat cards for requests, tokens in/out, errors, average latency, and active/working models, plus requests-over-time, by-provider, and top-models charts and a recent-activity table), working navigation tabs (Dashboard, Providers, Models, Chat, Config, Messaging), and an apps-chats-style chat to talk to your free models. Everything runs offline with a locally vendored Chart.js. See [docs/DASHBOARD.md](docs/DASHBOARD.md).
+> - **Stream idle-timeout watchdog (2.5.0).** New `HTTP_STREAM_IDLE_TIMEOUT` (default 60s). If an upstream provider accepts a request but sends no data within the window, the proxy aborts with a clean Anthropic error instead of hanging for the full 300s read-timeout (fixes a ~5-minute silent hang when Claude Code auto-selected a non-responding NVIDIA NIM model).
+> - **Clean missing-key error (2.5.0).** A provider with no API key now returns a proper Anthropic `401 authentication_error` (naming the env var and where to get a key) instead of a malformed HTTP 500.
+> - **Working-models-only model picker (2.5.0).** New model-health tracking reactively hides models that error or time out in real use from `/v1/models` until a cooldown elapses, plus a proactive Admin UI "Check working models" health-check across all credentialed providers.
 >
 > See [What changed in this fork](#what-changed-in-this-fork) for details.
 
@@ -82,12 +83,22 @@ Fork of [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-cla
 
 ## What Changed In This Fork
 
-This fork (version **2.5.0**, dated **2026-06-28**, forked from upstream **2.3.20**) adds a stream idle-timeout watchdog, a clean missing-key `401` error, and working-models-only model-picker health tracking.
+This fork (version **2.7.0**, dated **2026-06-28**, forked from upstream **2.3.20**) adds a stream idle-timeout watchdog, a clean missing-key `401` error, working-models-only model-picker health tracking, and a redesigned, fully offline Admin UI with an Analytics dashboard and an in-browser chat for your free models.
 
 - Full release notes: [CHANGELOG.md](CHANGELOG.md)
+- Admin Dashboard guide (tabs, usage metrics, chat, endpoints, offline guarantees): [docs/DASHBOARD.md](docs/DASHBOARD.md)
 - Engineering write-up (symptoms, root cause, fix, verification, and new env vars): [docs/FIXES-2026-06-28.md](docs/FIXES-2026-06-28.md)
 
 The real `claude` command is never modified. FCC ships separate `fcc-claude` / `fcc-codex` launchers that run the real CLI pointed at the local proxy (`ANTHROPIC_BASE_URL`), so your normal `claude` (Pro/Max/Anthropic API) is untouched.
+
+## Admin Dashboard
+
+The local **Admin UI** at `/admin` (loopback only, `http://127.0.0.1:8082/admin`) ships a DashWind-style admin dashboard. Full guide: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+- **Analytics dashboard (default view).** Stat cards for total requests, tokens in/out, errors, average latency, and active/working models, plus a requests-over-time line chart, a requests-by-provider doughnut, a top-models bar chart, and a recent-activity table. Data comes from the loopback endpoint `GET /admin/api/usage?range=1h|24h|7d`; use the range selector to switch between the last hour, 24 hours, or 7 days.
+- **Working tabs.** Dashboard, Providers, Models (working-model health), Chat, Config, and Messaging.
+- **Chat with your free models.** An apps-chats-style view with your configured models listed as conversation "contacts" on the left and a chat thread on the right. Pick a model, send a message, and replies stream from your configured free providers via `POST /admin/api/chat`, with offline markdown rendering and a model picker.
+- **Fully offline and local-only.** No CDNs or web fonts; charts use a locally vendored Chart.js (`api/admin_static/vendor/chart.umd.min.js`), and the UI is served only on `127.0.0.1/admin`.
 
 ## Quick Start
 
@@ -150,6 +161,12 @@ Need an NVIDIA NIM API key? Use the **[NVIDIA NIM provider](#nvidia-nim-provider
 Paste your NVIDIA NIM API key into `NVIDIA_NIM_API_KEY`, then click **Validate** and **Apply**.
 
 The default model is already set to `nvidia_nim/nvidia/nemotron-3-super-120b-a12b`. You can change it later from the same Admin UI.
+
+The Admin UI opens on a local-only **Analytics dashboard**: request/token/error trends over time, a configurable token-budget gauge, requests by provider, your most-used models, and a recent-activity feed — all served from `127.0.0.1`, nothing leaves your machine. See [docs/DASHBOARD.md](docs/DASHBOARD.md) for the full tour.
+
+<div align="center">
+  <img src="assets/admin-dashboard.png" alt="Local analytics dashboard showing usage, token budget, and per-model and per-provider charts" width="700">
+</div>
 
 ### 4. Run Your Coding Agent
 

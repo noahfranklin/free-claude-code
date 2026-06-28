@@ -197,6 +197,15 @@ _NON_PROVIDER_FIELDS: tuple[ConfigFieldSpec, ...] = (
         default="5",
     ),
     ConfigFieldSpec(
+        "USAGE_TOKEN_BUDGET",
+        "Usage Token Budget",
+        "runtime",
+        "number",
+        settings_attr="usage_token_budget",
+        default="0",
+        description="Soft token budget for the dashboard usage gauge. 0 disables it.",
+    ),
+    ConfigFieldSpec(
         "HTTP_READ_TIMEOUT",
         "HTTP Read Timeout",
         "runtime",

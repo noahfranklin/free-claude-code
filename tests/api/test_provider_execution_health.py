@@ -11,6 +11,7 @@ from api.model_health import ModelHealth, ModelHealthStatus
 from api.model_router import ResolvedModel, RoutedMessagesRequest
 from api.models.anthropic import Message, MessagesRequest
 from api.provider_execution import ProviderExecutionService
+from api.usage import Usage
 from config.settings import Settings
 from providers.base import BaseProvider, ProviderConfig
 from providers.exceptions import ProviderError
@@ -122,6 +123,68 @@ async def test_provider_error_marks_unhealthy_and_reraises() -> None:
     status = health.status("deepseek/deepseek-chat")
     assert status is ModelHealthStatus.UNHEALTHY
     assert health.snapshot()["deepseek/deepseek-chat"]["reason"] == "ProviderError"
+
+
+def _service_with_usage(
+    provider: _FakeProvider, settings: Settings, usage: Usage
+) -> ProviderExecutionService:
+    return ProviderExecutionService(
+        settings,
+        provider_getter=lambda _pid: provider,
+        token_counter=lambda *_args: 42,
+        usage=usage,
+    )
+
+
+@pytest.mark.asyncio
+async def test_usage_records_one_ok_entry_on_success() -> None:
+    provider = _FakeProvider(chunks=["abcd", "efgh"])
+    settings = _settings(enabled=False)
+    usage = Usage()
+    service = _service_with_usage(provider, settings, usage)
+
+    _ = [
+        chunk
+        async for chunk in service.stream(
+            _routed(),
+            wire_api="messages",
+            raw_log_label="X",
+            raw_log_payload={},
+        )
+    ]
+
+    snap = usage.snapshot(3600)
+    assert snap["totals"]["requests"] == 1
+    assert snap["totals"]["errors"] == 0
+    recent = snap["recent"][0]
+    assert recent["status"] == "ok"
+    assert recent["model"] == "deepseek/deepseek-chat"
+    assert recent["provider"] == "deepseek"
+    assert recent["tokens_in"] == 42
+    # tokens_out approximated as total streamed chars (8) // 4.
+    assert recent["tokens_out"] == 2
+
+
+@pytest.mark.asyncio
+async def test_usage_records_one_error_entry_on_exception() -> None:
+    provider = _FakeProvider(raise_exc=ProviderError("boom"))
+    settings = _settings(enabled=False)
+    usage = Usage()
+    service = _service_with_usage(provider, settings, usage)
+
+    with pytest.raises(ProviderError):
+        async for _chunk in service.stream(
+            _routed(),
+            wire_api="messages",
+            raw_log_label="X",
+            raw_log_payload={},
+        ):
+            pass
+
+    snap = usage.snapshot(3600)
+    assert snap["totals"]["requests"] == 1
+    assert snap["totals"]["errors"] == 1
+    assert snap["recent"][0]["status"] == "error"
 
 
 @pytest.mark.asyncio

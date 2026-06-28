@@ -9,6 +9,67 @@ This fork was branched from upstream
 [Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code)
 at base version **2.3.20**.
 
+## [2.8.0] - 2026-06-28
+
+### Added
+
+- **Configurable token budget** (`USAGE_TOKEN_BUDGET`; env var, default `0` =
+  disabled): a display-only soft budget over input + output tokens. When set, the
+  Analytics dashboard renders a **"% of budget"** gauge for the selected range.
+  It is editable from the admin Config / Runtime settings and is **never
+  enforced**.
+  - The `GET /admin/api/usage` response now includes a `budget` block
+    (`token_limit`, `tokens_used`, `percent_used`).
+- **Expanded dashboard visualizations** that surface previously-unvisualized
+  usage data already returned by the endpoint:
+  - Input-token and error time series charts (alongside requests and output
+    tokens).
+  - Per-provider doughnut tooltips now show tokens and errors.
+  - Per-model bar tooltips now show tokens, errors, and average latency.
+
+### Fixed
+
+- **Dashboard charts now render.** The vendored Chart.js
+  (`/admin/assets/vendor/chart.umd.min.js`) was returning **404** because the
+  admin asset route did not match the `vendor/` subpath, leaving every chart
+  blank. Added a loopback-only route that serves the bundled Chart.js (and
+  rejects any other vendor filename).
+
+## [2.7.0] - 2026-06-28
+
+### Added
+
+- **Analytics dashboard** (default Admin UI view): a DashWind-style admin shell
+  with stat cards (total requests, tokens in/out, errors, average latency, and
+  active/working models) and charts (requests-over-time line chart,
+  requests-by-provider doughnut, top-models bar chart) plus a recent-activity
+  table.
+  - New loopback usage endpoint `GET /admin/api/usage?range=1h|24h|7d` backs the
+    cards, charts, and recent-activity table from local request tracking.
+- **Working navigation tabs** in the redesigned shell: Dashboard, Providers,
+  Models (working-model health), Chat, Config, and Messaging.
+- **apps-chats-style chat UI**: a left list of your configured models as
+  conversation "contacts" and a right-hand chat thread that streams replies from
+  your free providers via `POST /admin/api/chat`, with offline markdown
+  rendering and a model picker.
+- **Vendored offline Chart.js** at `api/admin_static/vendor/chart.umd.min.js` so
+  the dashboard renders charts with no CDN, web fonts, or other network access.
+
+### Changed
+
+- The Admin UI now opens on the Analytics dashboard by default; everything stays
+  fully offline and local-only (`127.0.0.1/admin`).
+
+## [2.6.0] - 2026-06-28
+
+### Added
+
+- **Admin UI redesign**: a refreshed local Admin UI layout for editing proxy
+  settings, validating changes, and checking providers (loopback access only).
+- **In-browser chat**: an Admin UI chat surface to talk to your configured free
+  models directly from the browser, backed by the loopback endpoint
+  `POST /admin/api/chat`.
+
 ## [2.5.0] - 2026-06-28
 
 ### Added
@@ -47,4 +108,6 @@ at base version **2.3.20**.
   with model-health disabled (`FCC_MODEL_HEALTH_ENABLED=false`) or `FCC_MODEL_LIST_MODE=all`,
   the catalog behaves as before.
 
+[2.7.0]: https://github.com/noahfranklin/free-claude-code/releases/tag/v2.7.0
+[2.6.0]: https://github.com/noahfranklin/free-claude-code/releases/tag/v2.6.0
 [2.5.0]: https://github.com/noahfranklin/free-claude-code/releases/tag/v2.5.0

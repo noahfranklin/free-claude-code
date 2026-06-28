@@ -17,6 +17,7 @@ from providers.exceptions import (
 from providers.runtime import ProviderRuntime
 
 from .model_health import ModelHealth
+from .usage import Usage
 
 
 def get_settings() -> Settings:
@@ -45,6 +46,12 @@ def maybe_model_health(app: Starlette) -> ModelHealth | None:
     """Return the app-scoped model health registry when it is installed."""
     health = getattr(app.state, "model_health", None)
     return health if isinstance(health, ModelHealth) else None
+
+
+def maybe_usage(app: Starlette) -> Usage | None:
+    """Return the app-scoped usage tracker when it is installed."""
+    usage = getattr(app.state, "usage", None)
+    return usage if isinstance(usage, Usage) else None
 
 
 def resolve_provider(
