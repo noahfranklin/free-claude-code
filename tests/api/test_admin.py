@@ -11,7 +11,7 @@ from api.admin_config.values import MASKED_SECRET
 from api.admin_urls import local_admin_url
 from api.app import create_app
 from api.response_streams import anthropic_sse_streaming_response
-from config.settings import Settings
+from config.settings import Settings, get_settings
 from providers.exceptions import ProviderError
 
 
@@ -49,6 +49,31 @@ def test_admin_page_is_loopback_only(monkeypatch, tmp_path):
     assert _local_client(app).get("/admin").status_code == 200
     remote_client = TestClient(app, client=("203.0.113.10", 50000))
     assert remote_client.get("/admin").status_code == 403
+
+
+def test_admin_models_listed_without_client_api_key(monkeypatch, tmp_path):
+    # With ANTHROPIC_AUTH_TOKEN set, GET /v1/models requires the key, but the
+    # loopback admin model list must still work so the dashboard/Chat picker
+    # is not empty.
+    _set_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "secret-token")
+    get_settings.cache_clear()  # pick up the token regardless of test ordering
+    try:
+        app = create_app(lifespan_enabled=False)
+        client = _local_client(app)
+
+        assert client.get("/v1/models").status_code == 401
+
+        response = client.get("/admin/api/models")
+        assert response.status_code == 200
+        body = response.json()
+        # SUPPORTED_CLAUDE_MODELS are always advertised, so it is never empty.
+        assert len(body["data"]) > 0
+
+        remote_client = TestClient(app, client=("203.0.113.10", 50000))
+        assert remote_client.get("/admin/api/models").status_code == 403
+    finally:
+        get_settings.cache_clear()  # avoid leaking the token into other tests
 
 
 def test_admin_serves_vendored_chart_js(monkeypatch, tmp_path):

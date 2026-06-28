@@ -29,6 +29,13 @@ at base version **2.3.20**.
 
 ### Fixed
 
+- **Admin model picker is no longer empty when `ANTHROPIC_AUTH_TOKEN` is set.**
+  The dashboard and Chat view fetched the auth-protected `GET /v1/models` from
+  the browser without the token, so a configured token made every model list
+  return `401` ("No models available", Chat could not send). Added a
+  loopback-only `GET /admin/api/models` (gated by local access, like
+  `/admin/api/chat`) and pointed the Admin UI at it; it advertises every model
+  from credentialed providers plus the static Claude models.
 - **Dashboard charts now render.** The vendored Chart.js
   (`/admin/assets/vendor/chart.umd.min.js`) was returning **404** because the
   admin asset route did not match the `vendor/` subpath, leaving every chart

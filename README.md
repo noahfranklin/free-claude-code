@@ -154,11 +154,14 @@ Open the **Admin UI** URL from the terminal output.
 
 Need an NVIDIA NIM API key? Use the **[NVIDIA NIM provider](#nvidia-nim-provider)** section below, then scroll back up here.
 
-<div align="center">
-  <img src="assets/admin-page.png" alt="Local admin UI for proxy settings" width="700">
-</div>
+On the **Providers** view, paste your NVIDIA NIM API key into `NVIDIA_NIM_API_KEY`,
+then click **Validate** and **Apply**. Each provider card shows its credential
+status (Configured / Missing key) and local endpoints show reachability — only
+the key *names* are shown, never the values.
 
-Paste your NVIDIA NIM API key into `NVIDIA_NIM_API_KEY`, then click **Validate** and **Apply**.
+<div align="center">
+  <img src="assets/admin-providers.png" alt="Admin Providers view showing per-provider credential status" width="700">
+</div>
 
 The default model is already set to `nvidia_nim/nvidia/nemotron-3-super-120b-a12b`. You can change it later from the same Admin UI.
 
@@ -166,6 +169,14 @@ The Admin UI opens on a local-only **Analytics dashboard**: request/token/error 
 
 <div align="center">
   <img src="assets/admin-dashboard.png" alt="Local analytics dashboard showing usage, token budget, and per-model and per-provider charts" width="700">
+</div>
+
+The **Chat** view lets you talk to any working model straight from the browser —
+the picker lists every model from your credentialed providers, and replies
+stream back through the local proxy.
+
+<div align="center">
+  <img src="assets/admin-chat.png" alt="Admin Chat view with a searchable model picker and streaming replies" width="700">
 </div>
 
 ### 4. Run Your Coding Agent

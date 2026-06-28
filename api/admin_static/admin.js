@@ -604,7 +604,7 @@ async function loadModelsStats() {
   let working = 0;
   let providers = 0;
   try {
-    const result = await api("/v1/models");
+    const result = await api("/admin/api/models");
     const data = result.data || [];
     working = data.length;
     providers = new Set(
@@ -744,7 +744,7 @@ async function loadDashboard(range) {
   }
   let workingModels = null;
   try {
-    const result = await api("/v1/models");
+    const result = await api("/admin/api/models");
     workingModels = (result.data || []).length;
   } catch (error) {
     workingModels = null;
@@ -1172,7 +1172,7 @@ function modelMeta(model) {
 
 async function loadChatModels() {
   try {
-    const result = await api("/v1/models");
+    const result = await api("/admin/api/models");
     chat.models = (result.data || []).map(modelMeta);
   } catch (error) {
     chat.models = [];

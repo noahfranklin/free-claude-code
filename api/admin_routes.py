@@ -26,7 +26,8 @@ from .admin_config.persistence import validate_updates, write_managed_env
 from .admin_config.status import provider_config_status
 from .admin_config.values import load_config_response
 from .admin_urls import local_admin_url
-from .dependencies import maybe_model_health, maybe_usage
+from .dependencies import maybe_model_health, maybe_provider_runtime, maybe_usage
+from .model_catalog import build_models_list_response
 from .model_health import ModelHealth
 from .model_health_probe import probe_model_health
 from .models.anthropic import MessagesRequest
@@ -281,6 +282,21 @@ async def refresh_models(request: Request):
             for provider_id, model_ids in runtime.cached_model_ids().items()
         }
     }
+
+
+@router.get("/admin/api/models")
+async def admin_models(request: Request):
+    """List advertised models for the loopback Admin UI.
+
+    Mirrors ``GET /v1/models`` but is gated by loopback access instead of the
+    client API key, so the dashboard and Chat model picker work even when
+    ``ANTHROPIC_AUTH_TOKEN`` is set.
+    """
+    require_loopback_admin(request)
+    settings = get_cached_settings()
+    runtime = maybe_provider_runtime(request.app)
+    health = maybe_model_health(request.app)
+    return build_models_list_response(settings, runtime, health)
 
 
 @router.get("/admin/api/models/health")
