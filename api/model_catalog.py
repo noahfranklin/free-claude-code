@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from config.model_refs import configured_chat_model_refs
 from config.settings import Settings
 from providers.runtime import ProviderRuntime
@@ -52,6 +54,28 @@ SUPPORTED_CLAUDE_MODELS = [
 ]
 
 
+# Providers whose models are free to use (no per-token cost): NVIDIA NIM's
+# integrate API and locally-hosted runtimes. OpenRouter flags zero-cost models
+# with a ":free" model-id suffix instead.
+_FREE_PROVIDER_IDS = frozenset({"nvidia_nim", "ollama", "lmstudio", "llamacpp"})
+
+
+def is_free_model_ref(provider_model_ref: str) -> bool:
+    """Return whether a ``provider/model`` ref is free to use."""
+    provider_id = provider_model_ref.split("/", 1)[0]
+    if provider_id in _FREE_PROVIDER_IDS:
+        return True
+    return provider_model_ref.endswith(":free")
+
+
+@dataclass(frozen=True, slots=True)
+class _ModelCandidate:
+    """A unique listable provider model ref with thinking-capability metadata."""
+
+    ref: str
+    supports_thinking: bool | None
+
+
 def build_models_list_response(
     settings: Settings,
     provider_runtime: ProviderRuntime | None,
@@ -61,39 +85,49 @@ def build_models_list_response(
 
     When ``health`` is provided and health tracking is enabled, discovered and
     configured provider models are filtered by their tracked health using
-    ``settings.model_list_mode``. The static ``SUPPORTED_CLAUDE_MODELS`` are
-    always included so routing and defaults keep working.
+    ``settings.model_list_mode``. Under ``healthy_only`` the picker lists only
+    verified-working models and fills in as the startup probe confirms them.
+    Listable provider models are ranked so verified-working and free models lead
+    the picker. The static ``SUPPORTED_CLAUDE_MODELS`` are always appended so
+    routing and defaults keep working.
     """
-    models: list[ModelResponse] = []
-    seen: set[str] = set()
-
     health_filter = health if settings.model_health_enabled else None
+    mode = settings.model_list_mode
+
+    candidates: list[_ModelCandidate] = []
+    seen_refs: set[str] = set()
+
+    def add_candidate(ref: str, supports_thinking: bool | None) -> None:
+        if ref in seen_refs:
+            return
+        if health_filter is not None and not health_filter.is_listable(ref, mode=mode):
+            return
+        seen_refs.add(ref)
+        candidates.append(_ModelCandidate(ref, supports_thinking))
 
     for ref in configured_chat_model_refs(settings):
-        if not _ref_is_listable(health_filter, settings, ref.model_ref):
-            continue
         supports_thinking = None
         if provider_runtime is not None:
             supports_thinking = provider_runtime.cached_model_supports_thinking(
                 ref.provider_id, ref.model_id
             )
-        _append_provider_model_variants(
-            models,
-            seen,
-            ref.model_ref,
-            supports_thinking=supports_thinking,
-        )
+        add_candidate(ref.model_ref, supports_thinking)
 
     if provider_runtime is not None:
         for model_info in provider_runtime.cached_prefixed_model_infos():
-            if not _ref_is_listable(health_filter, settings, model_info.model_id):
-                continue
-            _append_provider_model_variants(
-                models,
-                seen,
-                model_info.model_id,
-                supports_thinking=model_info.supports_thinking,
-            )
+            add_candidate(model_info.model_id, model_info.supports_thinking)
+
+    candidates.sort(key=lambda candidate: _rank_key(candidate.ref, health_filter))
+
+    models: list[ModelResponse] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        _append_provider_model_variants(
+            models,
+            seen,
+            candidate.ref,
+            supports_thinking=candidate.supports_thinking,
+        )
 
     for model in SUPPORTED_CLAUDE_MODELS:
         _append_unique_model(models, seen, model)
@@ -106,12 +140,13 @@ def build_models_list_response(
     )
 
 
-def _ref_is_listable(
-    health: ModelHealth | None, settings: Settings, provider_model_ref: str
-) -> bool:
-    if health is None:
-        return True
-    return health.is_listable(provider_model_ref, mode=settings.model_list_mode)
+def _rank_key(
+    provider_model_ref: str, health: ModelHealth | None
+) -> tuple[int, int, str]:
+    """Sort key placing verified-working, then free, then alphabetical refs first."""
+    healthy = health is not None and health.is_healthy(provider_model_ref)
+    free = is_free_model_ref(provider_model_ref)
+    return (0 if healthy else 1, 0 if free else 1, provider_model_ref)
 
 
 def _discovered_model_response(model_id: str, *, display_name: str) -> ModelResponse:

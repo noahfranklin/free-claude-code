@@ -1,16 +1,16 @@
 """Proactive model health probing for the admin health-check endpoint.
 
-Drives a tiny single-token generation against every discoverable model on each
-credentialed provider, recording health so GET /v1/models can advertise only
-verified-working models. Probing reuses the real provider generation primitives
-(``preflight_stream`` + ``stream_response``) but bounds time per model and never
-lets one model's failure abort the batch.
+Drives a tiny single-token, non-streaming completion against every discoverable
+model on each credentialed provider, recording health so GET /v1/models can
+advertise only verified-working models. Probing uses ``provider.probe_model``
+(a direct client call that bypasses the global rate limiter and the streaming
+error-swallowing path) so real upstream failures are detected; it bounds time
+per model and never lets one model's failure abort the batch.
 """
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 
 from loguru import logger
 
@@ -18,7 +18,6 @@ from config.settings import Settings
 from providers.runtime import ProviderRuntime, model_list_provider_ids_for_settings
 
 from .model_health import ModelHealth
-from .models.anthropic import Message, MessagesRequest
 
 
 async def probe_model_health(
@@ -93,26 +92,10 @@ async def _probe_single(
         health.mark_unhealthy(ref, type(exc).__name__)
         return False
 
-    request = MessagesRequest(
-        model=model_id,
-        max_tokens=1,
-        messages=[Message(role="user", content="ping")],
-        stream=True,
-    )
     try:
-        provider.preflight_stream(request, thinking_enabled=False)
-    except Exception as exc:
-        health.mark_unhealthy(ref, type(exc).__name__)
-        return False
-
-    stream = provider.stream_response(request, input_tokens=1, thinking_enabled=False)
-    try:
-        async with asyncio.timeout(settings.model_health_probe_timeout):
-            async for _chunk in stream:
-                health.mark_healthy(ref)
-                return True
-        health.mark_unhealthy(ref, "empty_stream")
-        return False
+        await provider.probe_model(
+            model_id, timeout=settings.model_health_probe_timeout
+        )
     except asyncio.CancelledError:
         raise
     except TimeoutError:
@@ -121,8 +104,5 @@ async def _probe_single(
     except Exception as exc:
         health.mark_unhealthy(ref, type(exc).__name__)
         return False
-    finally:
-        aclose = getattr(stream, "aclose", None)
-        if aclose is not None:
-            with suppress(Exception):
-                await aclose()
+    health.mark_healthy(ref)
+    return True

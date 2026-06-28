@@ -16,7 +16,7 @@ from providers.runtime import ProviderRuntime
 
 
 class _FakeProbeProvider(BaseProvider):
-    """Stream a chunk for healthy model ids, raise for the rest."""
+    """Succeed probe_model for healthy model ids, raise for the rest."""
 
     def __init__(self, healthy_models: set[str]) -> None:
         super().__init__(ProviderConfig(api_key="x"))
@@ -28,6 +28,10 @@ class _FakeProbeProvider(BaseProvider):
     async def list_model_ids(self) -> frozenset[str]:
         return frozenset(self._healthy_models)
 
+    async def probe_model(self, model_id: str, *, timeout: float) -> None:
+        if model_id not in self._healthy_models:
+            raise ProviderError("model unavailable")
+
     async def stream_response(
         self,
         request: Any,
@@ -36,9 +40,8 @@ class _FakeProbeProvider(BaseProvider):
         request_id: str | None = None,
         thinking_enabled: bool | None = None,
     ) -> AsyncIterator[str]:
-        if request.model not in self._healthy_models:
-            raise ProviderError("model unavailable")
-        yield "event: message_start\n\n"
+        if False:
+            yield ""
 
 
 def _settings() -> Settings:

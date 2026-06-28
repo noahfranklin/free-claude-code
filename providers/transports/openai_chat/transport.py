@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import abstractmethod
 from collections.abc import AsyncIterator, Iterator
+from contextlib import suppress
 from typing import Any
 
 import httpx
@@ -16,6 +18,7 @@ from providers.error_mapping import (
     map_error,
     user_visible_message_for_mapped_provider_error,
 )
+from providers.exceptions import APIError
 from providers.model_listing import extract_openai_model_ids
 from providers.rate_limit import GlobalRateLimiter
 
@@ -77,6 +80,32 @@ class OpenAIChatTransport(BaseProvider):
         """Return model ids from the provider's OpenAI-compatible models endpoint."""
         payload = await self._client.models.list()
         return extract_openai_model_ids(payload, provider_name=self._provider_name)
+
+    async def probe_model(self, model_id: str, *, timeout: float) -> None:
+        """Probe via a direct streaming chat completion (mirrors real usage).
+
+        Calls the AsyncOpenAI client directly (no global rate limiter, no
+        streaming error-swallowing adapter) and waits for the first streamed
+        chunk. A 4xx/5xx raises immediately, a cold-start/hung model trips the
+        timeout, and a stream that yields nothing raises -- so only models that
+        actually emit a token within ``timeout`` are recorded healthy. Streaming
+        (not a one-shot completion) is used because that is how Claude Code calls
+        models, and some providers answer one-shot but stall when streamed.
+        """
+        body: dict[str, Any] = {
+            "model": model_id,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+        async with asyncio.timeout(timeout):
+            stream = await self._client.chat.completions.create(**body, stream=True)
+            try:
+                async for _chunk in stream:
+                    return
+            finally:
+                with suppress(Exception):
+                    await stream.close()
+        raise APIError(f"{self._provider_name} streamed no content")
 
     @abstractmethod
     def _build_request_body(

@@ -32,6 +32,9 @@ _RUNTIME_EXTRAS = {
     "log_raw_cli_diagnostics": False,
     "log_messaging_error_details": False,
     "model_health_cooldown_seconds": 600.0,
+    "model_health_enabled": True,
+    "model_health_probe_on_startup": False,
+    "model_health_probe_interval_seconds": 900.0,
 }
 
 

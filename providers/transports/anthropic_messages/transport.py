@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from typing import Any, Literal
 
@@ -18,6 +19,7 @@ from providers.error_mapping import (
     map_error,
     user_visible_message_for_mapped_provider_error,
 )
+from providers.exceptions import APIError
 from providers.model_listing import (
     ProviderModelInfo,
     extract_openai_model_ids,
@@ -77,6 +79,38 @@ class AnthropicMessagesTransport(BaseProvider):
     async def list_model_ids(self) -> frozenset[str]:
         """Return model ids from an OpenAI-compatible ``/models`` endpoint."""
         return frozenset(info.model_id for info in await self.list_model_infos())
+
+    async def probe_model(self, model_id: str, *, timeout: float) -> None:
+        """Probe via a direct streaming ``/messages`` call (mirrors real usage).
+
+        Streams from the native endpoint with the httpx client directly (no
+        global rate limiter, no streaming error-swallowing adapter) and waits for
+        the first SSE line. A non-2xx raises, a cold-start/hung model trips the
+        timeout, and a stream that yields nothing raises -- so only models that
+        actually emit within ``timeout`` are recorded healthy. Streaming mirrors
+        how Claude Code calls models.
+        """
+        body: dict[str, Any] = {
+            "model": model_id,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
+            "stream": True,
+        }
+        async with asyncio.timeout(timeout):
+            async with self._client.stream(
+                "POST",
+                "/messages",
+                json=body,
+                headers=self._request_headers(),
+            ) as response:
+                if response.status_code >= 400:
+                    raise APIError(
+                        f"{self._provider_name} returned status {response.status_code}"
+                    )
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        return
+        raise APIError(f"{self._provider_name} streamed no content")
 
     async def list_model_infos(self) -> frozenset[ProviderModelInfo]:
         """Return model ids plus optional metadata from a ``/models`` endpoint."""

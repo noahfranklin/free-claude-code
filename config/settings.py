@@ -182,6 +182,19 @@ class Settings(BaseSettings):
     model_health_probe_concurrency: int = Field(
         default=8, validation_alias="FCC_MODEL_HEALTH_PROBE_CONCURRENCY"
     )
+    # Run a full health probe automatically at server startup (and on the
+    # interval below) so GET /v1/models only advertises verified-working models
+    # without waiting for a manual admin health-check. This is what stops dead
+    # provider-advertised models (e.g. NVIDIA NIM ids that 404 or never stream)
+    # from reaching the Claude Code model picker.
+    model_health_probe_on_startup: bool = Field(
+        default=True, validation_alias="FCC_MODEL_HEALTH_PROBE_ON_STARTUP"
+    )
+    # Seconds between background health re-probes. 0 (or negative) disables the
+    # periodic re-probe; a single startup probe still runs when enabled above.
+    model_health_probe_interval_seconds: float = Field(
+        default=900.0, validation_alias="FCC_MODEL_HEALTH_PROBE_INTERVAL"
+    )
 
     # ==================== Fast Prefix Detection ====================
     fast_prefix_detection: bool = True

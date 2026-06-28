@@ -94,6 +94,23 @@ def test_is_listable_uses_cooldown_expiry() -> None:
     assert registry.is_listable("nvidia_nim/bad", mode="exclude_unhealthy") is True
 
 
+def test_initial_probe_complete_defaults_false_then_marks() -> None:
+    registry, _clock = _registry()
+    assert registry.initial_probe_complete is False
+    registry.mark_initial_probe_complete()
+    assert registry.initial_probe_complete is True
+
+
+def test_is_healthy_true_only_when_status_healthy() -> None:
+    registry, _clock = _registry()
+    # Unknown ref is not healthy.
+    assert registry.is_healthy("nvidia_nim/foo") is False
+    registry.mark_healthy("nvidia_nim/foo")
+    assert registry.is_healthy("nvidia_nim/foo") is True
+    registry.mark_unhealthy("nvidia_nim/foo", "boom")
+    assert registry.is_healthy("nvidia_nim/foo") is False
+
+
 def test_snapshot_shape() -> None:
     registry, clock = _registry()
     registry.mark_healthy("nvidia_nim/good")

@@ -597,6 +597,87 @@ function ensureModels() {
   }
   loadModelHealthMode();
   loadModelsStats();
+  loadModelsList();
+}
+
+// Providers whose models are always free to run (local or no-cost gateways).
+const FREE_PROVIDER_IDS = new Set(["nvidia_nim", "ollama", "lmstudio", "llamacpp"]);
+
+// Gateway ids look like "<gateway>/<provider>/<model>"; the health snapshot and
+// free-model checks key off the "<provider>/<model>" ref, so drop the prefix.
+function modelHealthRef(id) {
+  const parts = (id || "").split("/");
+  return parts.length >= 3 ? parts.slice(1).join("/") : id || "";
+}
+
+function isFreeModelId(id) {
+  const ref = modelHealthRef(id);
+  const providerId = ref.split("/")[0] || "";
+  return FREE_PROVIDER_IDS.has(providerId) || (id || "").includes(":free");
+}
+
+function modelListRow(meta, status, free) {
+  const row = document.createElement("div");
+  row.className = "models-list-row";
+  const text = document.createElement("div");
+  text.className = "models-row-text";
+  const name = document.createElement("strong");
+  name.textContent = meta.name;
+  const sub = document.createElement("span");
+  sub.textContent = meta.provider;
+  text.append(name, sub);
+  const badges = document.createElement("div");
+  badges.className = "models-row-badges";
+  if (free) {
+    const freeBadge = document.createElement("span");
+    freeBadge.className = "model-badge model-badge-free";
+    freeBadge.textContent = "FREE";
+    badges.appendChild(freeBadge);
+  }
+  const normalized =
+    status === "healthy" || status === "unhealthy" ? status : "unknown";
+  const healthBadge = document.createElement("span");
+  healthBadge.className = `model-badge model-health-${normalized}`;
+  healthBadge.textContent = normalized;
+  badges.appendChild(healthBadge);
+  row.append(text, badges);
+  return row;
+}
+
+async function loadModelsList() {
+  const list = byId("modelsList");
+  if (!list) return;
+  let data = [];
+  let healthMap = {};
+  try {
+    const [modelsResult, healthResult] = await Promise.all([
+      api("/admin/api/models"),
+      api("/admin/api/models/health").catch(() => ({ models: {} })),
+    ]);
+    data = modelsResult.data || [];
+    healthMap = (healthResult && healthResult.models) || {};
+  } catch (error) {
+    list.innerHTML = "";
+    const failed = document.createElement("div");
+    failed.className = "models-list-empty";
+    failed.textContent = `Could not load models: ${error.message}`;
+    list.appendChild(failed);
+    return;
+  }
+  list.innerHTML = "";
+  if (!data.length) {
+    const empty = document.createElement("div");
+    empty.className = "models-list-empty";
+    empty.textContent = "No working models discovered yet.";
+    list.appendChild(empty);
+    return;
+  }
+  data.forEach((model) => {
+    const meta = modelMeta(model);
+    const snapshot = healthMap[modelHealthRef(meta.id)];
+    const status = snapshot ? snapshot.status : "unknown";
+    list.appendChild(modelListRow(meta, status, isFreeModelId(meta.id)));
+  });
 }
 
 async function loadModelsStats() {
@@ -679,6 +760,7 @@ async function checkWorkingModels(button) {
     });
     renderModelHealthSummary(result);
     loadModelsStats();
+    loadModelsList();
   } catch (error) {
     if (summary) summary.textContent = `Check failed: ${error.message}`;
   } finally {
@@ -694,6 +776,7 @@ async function refreshModelList(button) {
   try {
     await api("/admin/api/models/refresh", { method: "POST", body: "{}" });
     await loadModelsStats();
+    await loadModelsList();
   } catch (error) {
     showMessage(`Refresh failed: ${error.message}`, "error");
   } finally {

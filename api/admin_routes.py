@@ -307,6 +307,7 @@ async def models_health(request: Request):
     return {
         "model_list_mode": settings.model_list_mode,
         "enabled": settings.model_health_enabled,
+        "initial_probe_complete": health.initial_probe_complete,
         "models": health.snapshot(),
     }
 

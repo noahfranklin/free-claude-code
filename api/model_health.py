@@ -47,6 +47,25 @@ class ModelHealth:
         self._cooldown_seconds = cooldown_seconds
         self._clock = clock
         self._records: dict[str, _HealthRecord] = {}
+        self._initial_probe_complete = False
+
+    @property
+    def initial_probe_complete(self) -> bool:
+        """Whether at least one full proactive probe sweep has finished.
+
+        Used to apply a cold-start grace period: ``healthy_only`` listing is only
+        enforced once the first sweep has classified models, so the picker is not
+        empty during the seconds between startup and the first probe completing.
+        """
+        return self._initial_probe_complete
+
+    def mark_initial_probe_complete(self) -> None:
+        """Record that the first proactive probe sweep has completed."""
+        self._initial_probe_complete = True
+
+    def is_healthy(self, ref: str) -> bool:
+        """Return whether a model ref is currently verified-healthy."""
+        return self.status(ref) is ModelHealthStatus.HEALTHY
 
     def mark_healthy(self, ref: str) -> None:
         """Record that a model streamed successfully."""

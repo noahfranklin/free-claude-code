@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ from loguru import logger
 
 from api.admin_urls import local_admin_url
 from api.model_health import ModelHealth
+from api.model_health_probe import probe_model_health
 from api.usage import Usage
 from config.env_files import ANTHROPIC_AUTH_TOKEN_ENV, process_env_key_is_effective
 from config.paths import default_claude_workspace_path
@@ -93,6 +95,7 @@ class AppRuntime:
     app: FastAPI
     settings: Settings
     _provider_runtime: ProviderRuntime | None = field(default=None, init=False)
+    _health_probe_task: asyncio.Task[None] | None = field(default=None, init=False)
     messaging_runtime: MessagingRuntime | None = None
     messaging_workflow: MessagingWorkflow | None = None
     cli_manager: ManagedClaudeSessionManager | None = None
@@ -118,6 +121,7 @@ class AppRuntime:
             warn_if_process_auth_token(self.settings)
             await self._validate_configured_models_best_effort()
             self._provider_runtime.start_model_list_refresh()
+            self._start_model_health_probe()
             await self._start_messaging_if_configured()
             self._publish_state()
             logging.getLogger("uvicorn.error").info(
@@ -147,6 +151,57 @@ class AppRuntime:
                 exc.message,
             )
 
+    def _start_model_health_probe(self) -> None:
+        """Probe model health at startup (and on an interval) in the background.
+
+        Without this, provider-advertised models start UNKNOWN and reach the
+        picker before anything verifies them, so a dead model (e.g. an NVIDIA NIM
+        id that 404s or never streams) can be selected and hang. The background
+        sweep marks dead models unhealthy so GET /v1/models hides them, and marks
+        the initial-probe-complete flag so ``healthy_only`` can be enforced.
+        """
+        if not self.settings.model_health_enabled:
+            return
+        if not self.settings.model_health_probe_on_startup:
+            return
+        if self._provider_runtime is None:
+            return
+        self._health_probe_task = asyncio.create_task(self._run_health_probe_loop())
+
+    async def _run_health_probe_loop(self) -> None:
+        """Run the proactive health probe once, then repeat on the interval."""
+        runtime = self._provider_runtime
+        health = self.app.state.model_health
+        if runtime is None or health is None:
+            return
+        interval = self.settings.model_health_probe_interval_seconds
+        while True:
+            try:
+                await probe_model_health(
+                    settings=self.settings, runtime=runtime, health=health
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Background model health probe failed: exc_type={}",
+                    type(exc).__name__,
+                )
+            finally:
+                health.mark_initial_probe_complete()
+            if interval <= 0:
+                return
+            await asyncio.sleep(interval)
+
+    async def _stop_model_health_probe(self) -> None:
+        """Cancel the background health probe loop, if running."""
+        task = self._health_probe_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
     async def shutdown(self) -> None:
         verbose = self.settings.log_api_error_tracebacks
         if self.messaging_workflow is not None:
@@ -162,6 +217,7 @@ class AppRuntime:
                     )
 
         logger.info("Shutdown requested, cleaning up...")
+        await self._stop_model_health_probe()
         if self.messaging_runtime:
             await best_effort(
                 "messaging_runtime.stop",

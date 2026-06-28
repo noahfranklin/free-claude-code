@@ -124,6 +124,19 @@ class BaseProvider(ABC):
             http_status,
         )
 
+    async def probe_model(self, model_id: str, *, timeout: float) -> None:
+        """Verify a model works via a minimal non-streaming completion.
+
+        Returns ``None`` on success; raises on any HTTP/client error, non-2xx
+        response, timeout, or empty result. Unlike :meth:`stream_response` this
+        deliberately bypasses the global rate limiter and the friendly
+        error-swallowing streaming path so real upstream failures surface to the
+        caller. Concrete transports override this with a direct client call.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement probe_model"
+        )
+
     @abstractmethod
     async def cleanup(self) -> None:
         """Release any resources held by this provider."""

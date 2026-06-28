@@ -278,6 +278,34 @@ _NON_PROVIDER_FIELDS: tuple[ConfigFieldSpec, ...] = (
         advanced=True,
     ),
     ConfigFieldSpec(
+        "FCC_MODEL_HEALTH_PROBE_ON_STARTUP",
+        "Model Health Probe On Startup",
+        "runtime",
+        "boolean",
+        settings_attr="model_health_probe_on_startup",
+        default="true",
+        advanced=True,
+        restart_required=True,
+        description=(
+            "Run a full model-health probe at server startup (and on the "
+            "interval below) so /v1/models only advertises verified models."
+        ),
+    ),
+    ConfigFieldSpec(
+        "FCC_MODEL_HEALTH_PROBE_INTERVAL",
+        "Model Health Probe Interval (s)",
+        "runtime",
+        "number",
+        settings_attr="model_health_probe_interval_seconds",
+        default="900",
+        advanced=True,
+        restart_required=True,
+        description=(
+            "Seconds between background health re-probes. 0 or negative "
+            "disables periodic re-probing."
+        ),
+    ),
+    ConfigFieldSpec(
         "HTTP_CONNECT_TIMEOUT",
         "HTTP Connect Timeout",
         "runtime",
