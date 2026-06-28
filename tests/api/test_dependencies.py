@@ -15,7 +15,7 @@ from api.dependencies import (
     resolve_provider,
 )
 from config.nim import NimSettings
-from providers.exceptions import ServiceUnavailableError
+from providers.exceptions import AuthenticationError, ServiceUnavailableError
 from providers.nvidia_nim import NvidiaNimProvider
 from providers.runtime import ProviderRuntime
 
@@ -123,15 +123,18 @@ def test_resolve_provider_per_app_uses_separate_runtimes() -> None:
     assert p1 is not p2
 
 
-def test_resolve_provider_missing_key_raises_503() -> None:
+def test_resolve_provider_missing_key_raises_authentication_error() -> None:
+    # AuthenticationError is a ProviderError, so it must propagate unchanged for the
+    # app-level handler to surface a clean Anthropic 401 (not be masked as HTTP 503/500).
     app = _app_with_runtime(_make_mock_settings(open_router_api_key=""))
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AuthenticationError) as exc_info:
         resolve_provider("open_router", app=app)
 
-    assert exc_info.value.status_code == 503
-    assert "OPENROUTER_API_KEY" in exc_info.value.detail
-    assert "openrouter.ai" in exc_info.value.detail
+    assert exc_info.value.status_code == 401
+    message = str(exc_info.value)
+    assert "OPENROUTER_API_KEY" in message
+    assert "openrouter.ai" in message
 
 
 def test_resolve_provider_missing_runtime_raises_service_unavailable() -> None:

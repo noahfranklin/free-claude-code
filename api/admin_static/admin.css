@@ -213,6 +213,30 @@ textarea {
   font-size: 16px;
 }
 
+.strip-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.model-health-summary {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.model-health-summary:empty {
+  display: none;
+}
+
+.model-health-row.model-health-total {
+  margin-top: 4px;
+  color: var(--text);
+  font-weight: 700;
+}
+
 .provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

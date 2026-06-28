@@ -8,6 +8,7 @@ from dataclasses import replace
 from loguru import logger
 
 from api.detection import is_safety_classifier_request
+from api.model_health import ModelHealth
 from api.model_router import ModelRouter, RoutedMessagesRequest
 from api.models.anthropic import MessagesRequest
 from api.optimization_handlers import try_optimizations
@@ -48,6 +49,7 @@ class MessagesHandler:
         model_router: ModelRouter | None = None,
         token_counter: TokenCounter = get_token_count,
         provider_execution: ProviderExecutionService | None = None,
+        model_health: ModelHealth | None = None,
     ) -> None:
         self._settings = settings
         self._model_router = model_router or ModelRouter(settings)
@@ -56,6 +58,7 @@ class MessagesHandler:
             settings,
             provider_getter,
             token_counter=token_counter,
+            model_health=model_health,
         )
         self._message_intercepts: tuple[MessageIntercept, ...] = (
             self._intercept_web_server_tool,

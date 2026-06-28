@@ -9,14 +9,14 @@ from starlette.applications import Starlette
 from config.provider_catalog import PROVIDER_CATALOG
 from config.settings import Settings
 from config.settings import get_settings as _get_settings
-from core.anthropic import get_user_facing_error_message
 from providers.base import BaseProvider
 from providers.exceptions import (
-    AuthenticationError,
     ServiceUnavailableError,
     UnknownProviderTypeError,
 )
 from providers.runtime import ProviderRuntime
+
+from .model_health import ModelHealth
 
 
 def get_settings() -> Settings:
@@ -41,6 +41,12 @@ def maybe_provider_runtime(app: Starlette) -> ProviderRuntime | None:
     return runtime if isinstance(runtime, ProviderRuntime) else None
 
 
+def maybe_model_health(app: Starlette) -> ModelHealth | None:
+    """Return the app-scoped model health registry when it is installed."""
+    health = getattr(app.state, "model_health", None)
+    return health if isinstance(health, ModelHealth) else None
+
+
 def resolve_provider(
     provider_type: str,
     *,
@@ -51,11 +57,6 @@ def resolve_provider(
     should_log_init = not runtime.is_cached(provider_type)
     try:
         provider = runtime.resolve_provider(provider_type)
-    except AuthenticationError as e:
-        # Provider :class:`~providers.exceptions.AuthenticationError` messages are
-        # curated configuration hints (env var names, docs links), not upstream noise.
-        detail = str(e).strip() or get_user_facing_error_message(e)
-        raise HTTPException(status_code=503, detail=detail) from e
     except UnknownProviderTypeError:
         logger.error(
             "Unknown provider_type: '{}'. Supported: {}",

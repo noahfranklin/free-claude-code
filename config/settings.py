@@ -149,6 +149,34 @@ class Settings(BaseSettings):
         default=HTTP_CONNECT_TIMEOUT_DEFAULT,
         validation_alias="HTTP_CONNECT_TIMEOUT",
     )
+    # Abort a provider stream if no chunk arrives within this many seconds.
+    # 0 (or negative) disables the watchdog.
+    http_stream_idle_timeout: float = Field(
+        default=60.0, validation_alias="HTTP_STREAM_IDLE_TIMEOUT"
+    )
+
+    # ==================== Model Health Tracking ====================
+    # Track which advertised models are in working condition and (optionally)
+    # hide broken ones from GET /v1/models so the picker only lists usable models.
+    model_health_enabled: bool = Field(
+        default=True, validation_alias="FCC_MODEL_HEALTH_ENABLED"
+    )
+    # How /v1/models filters by health: "all" | "exclude_unhealthy" | "healthy_only".
+    model_list_mode: str = Field(
+        default="exclude_unhealthy", validation_alias="FCC_MODEL_LIST_MODE"
+    )
+    # How long a demoted (unhealthy) model stays hidden before it is probed again.
+    model_health_cooldown_seconds: float = Field(
+        default=600.0, validation_alias="FCC_MODEL_HEALTH_COOLDOWN"
+    )
+    # Per-model timeout for the proactive admin health-check probe.
+    model_health_probe_timeout: float = Field(
+        default=20.0, validation_alias="FCC_MODEL_HEALTH_PROBE_TIMEOUT"
+    )
+    # Max number of models probed concurrently during a proactive health-check.
+    model_health_probe_concurrency: int = Field(
+        default=8, validation_alias="FCC_MODEL_HEALTH_PROBE_CONCURRENCY"
+    )
 
     # ==================== Fast Prefix Detection ====================
     fast_prefix_detection: bool = True
@@ -303,6 +331,15 @@ class Settings(BaseSettings):
         if v <= 0:
             raise ValueError("messaging_rate_window must be > 0")
         return float(v)
+
+    @field_validator("model_list_mode", mode="before")
+    @classmethod
+    def normalize_model_list_mode(cls, v: Any) -> str:
+        valid = {"all", "exclude_unhealthy", "healthy_only"}
+        if not isinstance(v, str):
+            return "exclude_unhealthy"
+        normalized = v.strip().lower()
+        return normalized if normalized in valid else "exclude_unhealthy"
 
     @field_validator("web_fetch_allowed_schemes")
     @classmethod

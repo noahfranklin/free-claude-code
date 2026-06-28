@@ -10,9 +10,11 @@ from loguru import logger
 
 from config.settings import Settings
 from core.anthropic import get_token_count
+from core.anthropic.stream_watchdog import idle_timeout_stream
 from core.trace import api_messages_request_snapshot, trace_event, traced_async_stream
 from providers.base import BaseProvider
 
+from .model_health import ModelHealth
 from .model_router import RoutedMessagesRequest
 
 TokenCounter = Callable[[list[Any], str | list[Any] | None, list[Any] | None], int]
@@ -28,10 +30,12 @@ class ProviderExecutionService:
         provider_getter: ProviderGetter,
         *,
         token_counter: TokenCounter = get_token_count,
+        model_health: ModelHealth | None = None,
     ) -> None:
         self._settings = settings
         self._provider_getter = provider_getter
         self._token_counter = token_counter
+        self._model_health = model_health
 
     def stream(
         self,
@@ -83,12 +87,37 @@ class ProviderExecutionService:
             routed.request.system,
             routed.request.tools,
         )
-        return traced_async_stream(
-            provider.stream_response(
-                routed.request,
+
+        health = self._model_health
+        ref = routed.resolved.canonical_model_ref
+        on_first_chunk: Callable[[], None] | None = None
+        on_idle_timeout: Callable[[], None] | None = None
+        if self._settings.model_health_enabled and health is not None:
+            registry = health
+
+            def _mark_first() -> None:
+                registry.mark_healthy(ref)
+
+            def _mark_idle() -> None:
+                registry.mark_unhealthy(ref, "idle_timeout")
+
+            on_first_chunk = _mark_first
+            on_idle_timeout = _mark_idle
+
+        traced = traced_async_stream(
+            idle_timeout_stream(
+                provider.stream_response(
+                    routed.request,
+                    input_tokens=input_tokens,
+                    request_id=request_id,
+                    thinking_enabled=routed.resolved.thinking_enabled,
+                ),
+                timeout_seconds=self._settings.http_stream_idle_timeout,
+                request=routed.request,
                 input_tokens=input_tokens,
-                request_id=request_id,
-                thinking_enabled=routed.resolved.thinking_enabled,
+                log_raw_sse_events=self._settings.log_raw_sse_events,
+                on_first_chunk=on_first_chunk,
+                on_idle_timeout=on_idle_timeout,
             ),
             stage="egress",
             source="api",
@@ -109,3 +138,19 @@ class ProviderExecutionService:
                 "gateway_model": routed.request.model,
             },
         )
+
+        if self._settings.model_health_enabled and health is not None:
+            return self._mark_unhealthy_on_error(traced, health, ref)
+        return traced
+
+    @staticmethod
+    async def _mark_unhealthy_on_error(
+        source: AsyncIterator[str], health: ModelHealth, ref: str
+    ) -> AsyncIterator[str]:
+        """Demote a model when its provider stream raises before/while streaming."""
+        try:
+            async for chunk in source:
+                yield chunk
+        except Exception as exc:
+            health.mark_unhealthy(ref, type(exc).__name__)
+            raise

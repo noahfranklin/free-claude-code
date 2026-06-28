@@ -32,8 +32,15 @@
             <section class="provider-strip" aria-label="Provider status">
               <div class="strip-header">
                 <h3>Providers</h3>
+                <div class="strip-actions">
+                  <span id="modelHealthMode" class="field-source"></span>
+                  <button id="checkModelsButton" class="test-button" type="button">
+                    Check working models
+                  </button>
+                </div>
               </div>
               <div id="providerGrid" class="provider-grid"></div>
+              <div id="modelHealthSummary" class="model-health-summary"></div>
             </section>
             <div
               id="providersSections"

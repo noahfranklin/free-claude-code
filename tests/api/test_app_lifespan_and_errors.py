@@ -31,6 +31,7 @@ _RUNTIME_EXTRAS = {
     "log_raw_messaging_content": False,
     "log_raw_cli_diagnostics": False,
     "log_messaging_error_details": False,
+    "model_health_cooldown_seconds": 600.0,
 }
 
 

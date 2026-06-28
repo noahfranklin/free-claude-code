@@ -34,6 +34,7 @@ def get_messages_handler(
         settings,
         provider_getter=_provider_getter(request, settings),
         token_counter=get_token_count,
+        model_health=dependencies.maybe_model_health(request.app),
     )
 
 
@@ -45,6 +46,7 @@ def get_responses_handler(
     return ResponsesHandler(
         settings,
         provider_getter=_provider_getter(request, settings),
+        model_health=dependencies.maybe_model_health(request.app),
     )
 
 
@@ -150,7 +152,8 @@ async def list_models(
     """List the model ids this proxy advertises to Claude-compatible clients."""
     trace_event(stage="ingress", event="api.models.list", source="api")
     provider_runtime = dependencies.maybe_provider_runtime(request.app)
-    return build_models_list_response(settings, provider_runtime)
+    health = dependencies.maybe_model_health(request.app)
+    return build_models_list_response(settings, provider_runtime, health)
 
 
 @router.post("/stop")

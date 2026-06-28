@@ -7,6 +7,7 @@ from config.settings import Settings
 from providers.runtime import ProviderRuntime
 
 from .gateway_model_ids import gateway_model_id, no_thinking_gateway_model_id
+from .model_health import ModelHealth
 from .models.responses import ModelResponse, ModelsListResponse
 
 DISCOVERED_MODEL_CREATED_AT = "1970-01-01T00:00:00Z"
@@ -52,13 +53,25 @@ SUPPORTED_CLAUDE_MODELS = [
 
 
 def build_models_list_response(
-    settings: Settings, provider_runtime: ProviderRuntime | None
+    settings: Settings,
+    provider_runtime: ProviderRuntime | None,
+    health: ModelHealth | None = None,
 ) -> ModelsListResponse:
-    """Return configured, cached, and compatibility model ids."""
+    """Return configured, cached, and compatibility model ids.
+
+    When ``health`` is provided and health tracking is enabled, discovered and
+    configured provider models are filtered by their tracked health using
+    ``settings.model_list_mode``. The static ``SUPPORTED_CLAUDE_MODELS`` are
+    always included so routing and defaults keep working.
+    """
     models: list[ModelResponse] = []
     seen: set[str] = set()
 
+    health_filter = health if settings.model_health_enabled else None
+
     for ref in configured_chat_model_refs(settings):
+        if not _ref_is_listable(health_filter, settings, ref.model_ref):
+            continue
         supports_thinking = None
         if provider_runtime is not None:
             supports_thinking = provider_runtime.cached_model_supports_thinking(
@@ -73,6 +86,8 @@ def build_models_list_response(
 
     if provider_runtime is not None:
         for model_info in provider_runtime.cached_prefixed_model_infos():
+            if not _ref_is_listable(health_filter, settings, model_info.model_id):
+                continue
             _append_provider_model_variants(
                 models,
                 seen,
@@ -89,6 +104,14 @@ def build_models_list_response(
         has_more=False,
         last_id=models[-1].id if models else None,
     )
+
+
+def _ref_is_listable(
+    health: ModelHealth | None, settings: Settings, provider_model_ref: str
+) -> bool:
+    if health is None:
+        return True
+    return health.is_listable(provider_model_ref, mode=settings.model_list_mode)
 
 
 def _discovered_model_response(model_id: str, *, display_name: str) -> ModelResponse:

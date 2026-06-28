@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from loguru import logger
 
 from api.admin_urls import local_admin_url
+from api.model_health import ModelHealth
 from config.env_files import ANTHROPIC_AUTH_TOKEN_ENV, process_env_key_is_effective
 from config.paths import default_claude_workspace_path
 from config.settings import Settings, get_settings
@@ -108,6 +109,9 @@ class AppRuntime:
         admin_url = local_admin_url(self.settings)
         self._provider_runtime = ProviderRuntime(self.settings)
         self.app.state.provider_runtime = self._provider_runtime
+        self.app.state.model_health = ModelHealth(
+            cooldown_seconds=self.settings.model_health_cooldown_seconds
+        )
         try:
             warn_if_process_auth_token(self.settings)
             await self._validate_configured_models_best_effort()

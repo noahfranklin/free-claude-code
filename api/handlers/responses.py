@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from fastapi.responses import JSONResponse
 
+from api.model_health import ModelHealth
 from api.model_router import ModelRouter
 from api.models.anthropic import MessagesRequest
 from api.models.openai_responses import OpenAIResponsesRequest
@@ -36,6 +37,7 @@ class ResponsesHandler:
         model_router: ModelRouter | None = None,
         responses_adapter: OpenAIResponsesAdapter | None = None,
         provider_execution: ProviderExecutionService | None = None,
+        model_health: ModelHealth | None = None,
     ) -> None:
         self._settings = settings
         self._model_router = model_router or ModelRouter(settings)
@@ -43,6 +45,7 @@ class ResponsesHandler:
         self._provider_execution = provider_execution or ProviderExecutionService(
             settings,
             provider_getter,
+            model_health=model_health,
         )
 
     async def create(self, request_data: OpenAIResponsesRequest) -> object:

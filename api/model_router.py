@@ -22,6 +22,16 @@ class ResolvedModel:
     provider_model_ref: str
     thinking_enabled: bool
 
+    @property
+    def canonical_model_ref(self) -> str:
+        """Return the ``provider/model`` ref used by model-listing and health.
+
+        ``provider_model_ref`` may carry a gateway-encoded id when the request
+        arrived via Claude Code's picker; this canonical form always matches the
+        keys advertised by GET /v1/models so health lookups line up.
+        """
+        return f"{self.provider_id}/{self.provider_model}"
+
 
 @dataclass(frozen=True, slots=True)
 class RoutedMessagesRequest:

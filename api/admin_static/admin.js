@@ -450,6 +450,68 @@ async function testProvider(providerId, button) {
   }
 }
 
+async function loadModelHealthMode() {
+  try {
+    const result = await api("/admin/api/models/health");
+    renderModelHealthMode(result.model_list_mode, result.enabled);
+  } catch (error) {
+    // Health endpoint is best-effort; ignore load failures.
+  }
+}
+
+function renderModelHealthMode(mode, enabled) {
+  const label = byId("modelHealthMode");
+  if (!label) return;
+  label.textContent = enabled === false ? "health off" : `mode: ${mode || "?"}`;
+}
+
+function renderModelHealthSummary(result) {
+  const container = byId("modelHealthSummary");
+  if (!container) return;
+  container.innerHTML = "";
+  const providers = result.providers || {};
+  const ids = Object.keys(providers).sort();
+  if (ids.length === 0) {
+    container.textContent = "No discoverable models to check.";
+    return;
+  }
+  ids.forEach((providerId) => {
+    const bucket = providers[providerId];
+    const row = document.createElement("div");
+    row.className = "model-health-row";
+    const ok = bucket.healthy || 0;
+    const total = bucket.total || 0;
+    row.textContent = `${providerId}: ${ok}/${total} working`;
+    container.appendChild(row);
+  });
+  const total = result.total || {};
+  const totalRow = document.createElement("div");
+  totalRow.className = "model-health-row model-health-total";
+  totalRow.textContent = `Total: ${total.healthy || 0}/${total.total || 0} working`;
+  container.appendChild(totalRow);
+  renderModelHealthMode(result.model_list_mode);
+}
+
+async function checkWorkingModels(button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Checking…";
+  const summary = byId("modelHealthSummary");
+  if (summary) summary.textContent = "Checking models…";
+  try {
+    const result = await api("/admin/api/models/health-check", {
+      method: "POST",
+      body: "{}",
+    });
+    renderModelHealthSummary(result);
+  } catch (error) {
+    if (summary) summary.textContent = `Check failed: ${error.message}`;
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
 function syncModelDatalist() {
   let datalist = byId("model-options");
   if (!datalist) {
@@ -469,7 +531,12 @@ function showMessage(message, kind = "") {
 
 byId("validateButton").addEventListener("click", () => validate(true));
 byId("applyButton").addEventListener("click", apply);
+byId("checkModelsButton").addEventListener("click", (event) =>
+  checkWorkingModels(event.currentTarget),
+);
 
-load().catch((error) => {
-  showMessage(error.message, "error");
-});
+load()
+  .then(loadModelHealthMode)
+  .catch((error) => {
+    showMessage(error.message, "error");
+  });

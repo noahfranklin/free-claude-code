@@ -23,6 +23,9 @@ from .admin_config.persistence import validate_updates, write_managed_env
 from .admin_config.status import provider_config_status
 from .admin_config.values import load_config_response
 from .admin_urls import local_admin_url
+from .dependencies import maybe_model_health
+from .model_health import ModelHealth
+from .model_health_probe import probe_model_health
 
 router = APIRouter()
 
@@ -201,6 +204,37 @@ async def refresh_models(request: Request):
             for provider_id, model_ids in runtime.cached_model_ids().items()
         }
     }
+
+
+@router.get("/admin/api/models/health")
+async def models_health(request: Request):
+    require_loopback_admin(request)
+    settings = get_cached_settings()
+    health = _model_health_for_admin(request)
+    return {
+        "model_list_mode": settings.model_list_mode,
+        "enabled": settings.model_health_enabled,
+        "models": health.snapshot(),
+    }
+
+
+@router.post("/admin/api/models/health-check")
+async def models_health_check(request: Request):
+    require_loopback_admin(request)
+    settings = get_cached_settings()
+    runtime = _provider_runtime_for_admin(request, settings)
+    health = _model_health_for_admin(request)
+    return await probe_model_health(settings=settings, runtime=runtime, health=health)
+
+
+def _model_health_for_admin(request: Request) -> ModelHealth:
+    health = maybe_model_health(request.app)
+    if health is not None:
+        return health
+    settings = get_cached_settings()
+    health = ModelHealth(cooldown_seconds=settings.model_health_cooldown_seconds)
+    request.app.state.model_health = health
+    return health
 
 
 def _provider_runtime_for_admin(
