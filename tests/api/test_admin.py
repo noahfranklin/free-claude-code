@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,7 +10,9 @@ from fastapi.testclient import TestClient
 from api.admin_config.values import MASKED_SECRET
 from api.admin_urls import local_admin_url
 from api.app import create_app
+from api.response_streams import anthropic_sse_streaming_response
 from config.settings import Settings
+from providers.exceptions import ProviderError
 
 
 def _local_client(app):
@@ -504,6 +507,94 @@ def test_admin_local_provider_status_reports_reachable(monkeypatch, tmp_path):
     assert response.status_code == 200
     providers = response.json()["providers"]
     assert {provider["status"] for provider in providers} == {"reachable"}
+
+
+def _text_delta_event(text: str) -> str:
+    data = json.dumps(
+        {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}}
+    )
+    return f"event: content_block_delta\ndata: {data}\n\n"
+
+
+def test_admin_chat_streams_assistant_text(monkeypatch, tmp_path):
+    _set_home(monkeypatch, tmp_path)
+    _clear_process_config(monkeypatch)
+    app = create_app(lifespan_enabled=False)
+
+    captured: dict[str, object] = {}
+
+    async def fake_stream():
+        yield _text_delta_event("Hello")
+        yield _text_delta_event(", world")
+
+    class FakeHandler:
+        def create(self, request_data):
+            captured["model"] = request_data.model
+            captured["max_tokens"] = request_data.max_tokens
+            return anthropic_sse_streaming_response(fake_stream())
+
+    monkeypatch.setattr(
+        "api.admin_routes.build_messages_handler",
+        lambda request, settings: FakeHandler(),
+    )
+
+    response = _local_client(app).post(
+        "/admin/api/chat",
+        json={
+            "model": "anthropic/open_router/test-model",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Hello" in response.text
+    assert ", world" in response.text
+    assert captured["model"] == "anthropic/open_router/test-model"
+    assert captured["max_tokens"] == 4096
+
+
+def test_admin_chat_streams_provider_error_instead_of_500(monkeypatch, tmp_path):
+    _set_home(monkeypatch, tmp_path)
+    _clear_process_config(monkeypatch)
+    app = create_app(lifespan_enabled=False)
+
+    class FailingHandler:
+        def create(self, request_data):
+            raise ProviderError("upstream boom")
+
+    monkeypatch.setattr(
+        "api.admin_routes.build_messages_handler",
+        lambda request, settings: FailingHandler(),
+    )
+
+    response = _local_client(app).post(
+        "/admin/api/chat",
+        json={
+            "model": "anthropic/open_router/test-model",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert "upstream boom" in response.text
+    assert '"type": "error"' in response.text
+
+
+def test_admin_chat_is_loopback_only(monkeypatch, tmp_path):
+    _set_home(monkeypatch, tmp_path)
+    _clear_process_config(monkeypatch)
+    app = create_app(lifespan_enabled=False)
+
+    remote_client = TestClient(app, client=("203.0.113.10", 50000))
+    response = remote_client.post(
+        "/admin/api/chat",
+        json={
+            "model": "anthropic/open_router/test-model",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert response.status_code == 403
 
 
 def test_admin_launch_url_uses_loopback_for_wildcard_host():

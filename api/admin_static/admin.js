@@ -29,6 +29,12 @@ const VIEW_GROUPS = [
     sections: ["messaging", "voice"],
     containerId: "messagingSections",
   },
+  {
+    id: "chat",
+    label: "Chat",
+    title: "Chat",
+    chat: true,
+  },
 ];
 
 const byId = (id) => document.getElementById(id);
@@ -132,6 +138,12 @@ function setActiveView(viewId, { scroll = false } = {}) {
     view.hidden = !selected;
   });
 
+  const isChat = activeView.chat === true;
+  document.querySelector(".app-shell").classList.toggle("chat-mode", isChat);
+  if (isChat) {
+    ensureChatInit();
+  }
+
   if (scroll) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -185,6 +197,7 @@ function updateProviderCard(providerId, status, label, metaText) {
 
 function renderSections(sections, fields) {
   VIEW_GROUPS.forEach((view) => {
+    if (!view.containerId) return;
     byId(view.containerId).innerHTML = "";
   });
 
@@ -197,6 +210,7 @@ function renderSections(sections, fields) {
   });
 
   VIEW_GROUPS.forEach((view) => {
+    if (!view.containerId || !view.sections) return;
     const container = byId(view.containerId);
     view.sections.forEach((sectionId) => {
       const section = sectionById.get(sectionId);
@@ -527,6 +541,330 @@ function showMessage(message, kind = "") {
   const area = byId("messageArea");
   area.textContent = message;
   area.className = `message-area ${kind}`.trim();
+}
+
+/* ------------------------------------------------------------------- Chat */
+
+const chat = {
+  messages: [],
+  streaming: false,
+  initialized: false,
+  controller: null,
+};
+
+function ensureChatInit() {
+  if (chat.initialized) return;
+  chat.initialized = true;
+  wireChat();
+  renderChat();
+  refreshChatModels();
+}
+
+function wireChat() {
+  const form = byId("chatForm");
+  const input = byId("chatInput");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (chat.streaming) {
+      if (chat.controller) chat.controller.abort();
+      return;
+    }
+    sendChat();
+  });
+  byId("chatNew").addEventListener("click", newChat);
+  input.addEventListener("input", () => autoGrow(input));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (!chat.streaming) sendChat();
+    }
+  });
+}
+
+async function refreshChatModels() {
+  const select = byId("chatModel");
+  try {
+    const result = await api("/v1/models");
+    const models = result.data || [];
+    select.innerHTML = "";
+    models.forEach((model) =>
+      select.appendChild(option(model.id, model.display_name || model.id)),
+    );
+    const configured = state.fields.get("MODEL");
+    const preferred = configured ? configured.value : "";
+    if (preferred && models.some((model) => model.id === preferred)) {
+      select.value = preferred;
+    } else if (models.length) {
+      select.value = models[0].id;
+    }
+  } catch (error) {
+    select.innerHTML = "";
+    select.appendChild(option("", "No models available"));
+  }
+}
+
+function autoGrow(el) {
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+}
+
+function setChatStreaming(streaming) {
+  chat.streaming = streaming;
+  const send = byId("chatSend");
+  send.textContent = streaming ? "Stop" : "Send";
+  send.classList.toggle("is-streaming", streaming);
+}
+
+function newChat() {
+  if (chat.controller) chat.controller.abort();
+  chat.messages = [];
+  renderChat();
+  const input = byId("chatInput");
+  input.value = "";
+  autoGrow(input);
+  input.focus();
+}
+
+async function sendChat() {
+  const input = byId("chatInput");
+  const text = input.value.trim();
+  const model = byId("chatModel").value;
+  if (!text || chat.streaming || !model) return;
+
+  chat.messages.push({ role: "user", content: text });
+  input.value = "";
+  autoGrow(input);
+  const assistant = { role: "assistant", content: "" };
+  chat.messages.push(assistant);
+  setChatStreaming(true);
+  renderChat();
+
+  chat.controller = new AbortController();
+  try {
+    const response = await fetch("/admin/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: chat.controller.signal,
+      body: JSON.stringify({
+        model,
+        messages: chat.messages
+          .slice(0, -1)
+          .map((message) => ({ role: message.role, content: message.content })),
+        max_tokens: 4096,
+      }),
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    await readChatStream(response.body, assistant);
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      appendChatError(assistant, error.message);
+    }
+  } finally {
+    chat.controller = null;
+    setChatStreaming(false);
+    renderChat();
+  }
+}
+
+async function readChatStream(body, assistant) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop();
+    blocks.forEach((block) => handleSseBlock(block, assistant));
+  }
+  if (buffer.trim()) handleSseBlock(buffer, assistant);
+}
+
+function handleSseBlock(block, assistant) {
+  block.split("\n").forEach((line) => {
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith("data:")) return;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") return;
+    let payload;
+    try {
+      payload = JSON.parse(data);
+    } catch (error) {
+      return;
+    }
+    if (
+      payload.type === "content_block_delta" &&
+      payload.delta &&
+      payload.delta.type === "text_delta"
+    ) {
+      assistant.content += payload.delta.text || "";
+      updateStreamingMessage(assistant);
+    } else if (payload.type === "error") {
+      const message = (payload.error && payload.error.message) || "Unknown error";
+      appendChatError(assistant, message);
+    }
+  });
+}
+
+function appendChatError(assistant, message) {
+  assistant.content += `${assistant.content ? "\n\n" : ""}**Error:** ${message}`;
+  assistant.error = true;
+  updateStreamingMessage(assistant);
+}
+
+function renderChat() {
+  const log = byId("chatLog");
+  log.innerHTML = "";
+  chat.messages.forEach((message) => log.appendChild(renderMessage(message)));
+  byId("chatEmpty").hidden = chat.messages.length > 0;
+  scrollChatToBottom();
+}
+
+function updateStreamingMessage(assistant) {
+  const log = byId("chatLog");
+  const last = log.lastElementChild;
+  if (!last) return;
+  const bubble = last.querySelector(".chat-bubble");
+  if (bubble) {
+    bubble.classList.toggle("error", Boolean(assistant.error));
+    bubble.innerHTML = renderMarkdown(assistant.content) || "<span class='chat-cursor'></span>";
+  }
+  scrollChatToBottom();
+}
+
+function renderMessage(message) {
+  const row = document.createElement("div");
+  row.className = `chat-msg ${message.role}`;
+  if (message.role === "assistant") {
+    const role = document.createElement("div");
+    role.className = "chat-role";
+    role.textContent = "FC";
+    row.appendChild(role);
+  }
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble${message.error ? " error" : ""}`;
+  if (message.role === "assistant") {
+    bubble.innerHTML =
+      renderMarkdown(message.content) ||
+      (chat.streaming ? "<span class='chat-cursor'></span>" : "");
+  } else {
+    bubble.textContent = message.content;
+  }
+  row.appendChild(bubble);
+  return row;
+}
+
+function scrollChatToBottom() {
+  const scroll = byId("chatScroll");
+  if (scroll) scroll.scrollTop = scroll.scrollHeight;
+}
+
+/* ----------------------------------------------------- Offline markdown */
+
+function escapeHtml(text) {
+  return text.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[char],
+  );
+}
+
+function renderInline(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`);
+  html = html.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_, label, url) =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`,
+  );
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+  return html;
+}
+
+function renderMarkdown(src) {
+  if (!src) return "";
+  const blocks = [];
+  let text = src.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _lang, code) => {
+    const index = blocks.length;
+    blocks.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
+    return ` ${index} `;
+  });
+
+  const out = [];
+  let para = [];
+  let list = null;
+  const flushPara = () => {
+    if (para.length) {
+      out.push(`<p>${para.map(renderInline).join("<br>")}</p>`);
+      para = [];
+    }
+  };
+  const flushList = () => {
+    if (list) {
+      const items = list.items
+        .map((item) => `<li>${renderInline(item)}</li>`)
+        .join("");
+      out.push(`<${list.type}>${items}</${list.type}>`);
+      list = null;
+    }
+  };
+
+  text.split("\n").forEach((line) => {
+    const placeholder = line.match(/^ (\d+) $/);
+    if (placeholder) {
+      flushPara();
+      flushList();
+      out.push(blocks[Number(placeholder[1])]);
+      return;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flushPara();
+      flushList();
+      const level = heading[1].length;
+      out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      return;
+    }
+    const unordered = line.match(/^\s*[-*+]\s+(.*)$/);
+    const ordered = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (unordered) {
+      flushPara();
+      if (!list || list.type !== "ul") {
+        flushList();
+        list = { type: "ul", items: [] };
+      }
+      list.items.push(unordered[1]);
+      return;
+    }
+    if (ordered) {
+      flushPara();
+      if (!list || list.type !== "ol") {
+        flushList();
+        list = { type: "ol", items: [] };
+      }
+      list.items.push(ordered[1]);
+      return;
+    }
+    if (line.trim() === "") {
+      flushPara();
+      flushList();
+      return;
+    }
+    para.push(line);
+  });
+  flushPara();
+  flushList();
+  return out.join("\n");
 }
 
 byId("validateButton").addEventListener("click", () => validate(true));

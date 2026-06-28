@@ -25,17 +25,26 @@ def _provider_getter(request: Request, settings: Settings):
     )
 
 
-def get_messages_handler(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-) -> MessagesHandler:
-    """Build the Claude Messages product handler for route handlers."""
+def build_messages_handler(request: Request, settings: Settings) -> MessagesHandler:
+    """Construct a Claude Messages handler bound to the request's app state.
+
+    Shared by the public ``/v1/messages`` route and the loopback admin chat
+    endpoint so both reuse an identical provider pipeline.
+    """
     return MessagesHandler(
         settings,
         provider_getter=_provider_getter(request, settings),
         token_counter=get_token_count,
         model_health=dependencies.maybe_model_health(request.app),
     )
+
+
+def get_messages_handler(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> MessagesHandler:
+    """Build the Claude Messages product handler for route handlers."""
+    return build_messages_handler(request, settings)
 
 
 def get_responses_handler(

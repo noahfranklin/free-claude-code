@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import inspect
 import ipaddress
+import json
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -16,6 +18,7 @@ from pydantic import BaseModel, Field
 from config.model_refs import parse_provider_type
 from config.settings import Settings
 from config.settings import get_settings as get_cached_settings
+from providers.exceptions import ProviderError
 from providers.runtime import ProviderRuntime
 
 from .admin_config.manifest import FIELD_BY_KEY
@@ -26,6 +29,9 @@ from .admin_urls import local_admin_url
 from .dependencies import maybe_model_health
 from .model_health import ModelHealth
 from .model_health_probe import probe_model_health
+from .models.anthropic import MessagesRequest
+from .response_streams import anthropic_sse_streaming_response
+from .routes import build_messages_handler
 
 router = APIRouter()
 
@@ -37,10 +43,28 @@ LOCAL_PROVIDER_PATHS = {
 }
 
 
+DEFAULT_CHAT_MAX_TOKENS = 4096
+
+
 class AdminConfigPayload(BaseModel):
     """Partial config update submitted by the admin UI."""
 
     values: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminChatMessage(BaseModel):
+    """A single turn in the admin chat conversation."""
+
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class AdminChatPayload(BaseModel):
+    """Chat request submitted by the local admin Chat view."""
+
+    model: str
+    messages: list[AdminChatMessage]
+    max_tokens: int | None = None
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -133,6 +157,43 @@ async def apply_admin_config(
     request.app.state.provider_runtime = ProviderRuntime(get_cached_settings())
     request.app.state.admin_pending_fields = result["pending_fields"]
     return result
+
+
+@router.post("/admin/api/chat")
+async def admin_chat(payload: AdminChatPayload, request: Request):
+    require_loopback_admin(request)
+    settings = get_cached_settings()
+    handler = build_messages_handler(request, settings)
+    messages_request = MessagesRequest.model_validate(
+        {
+            "model": payload.model,
+            "messages": [
+                {"role": message.role, "content": message.content}
+                for message in payload.messages
+            ],
+            "max_tokens": payload.max_tokens or DEFAULT_CHAT_MAX_TOKENS,
+            "stream": True,
+        }
+    )
+    try:
+        return handler.create(messages_request)
+    except (ProviderError, HTTPException) as exc:
+        return anthropic_sse_streaming_response(_chat_error_stream(exc))
+
+
+def _chat_error_message(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    message = getattr(exc, "message", None)
+    return message if isinstance(message, str) and message else str(exc) or "error"
+
+
+async def _chat_error_stream(exc: Exception) -> AsyncIterator[str]:
+    payload = {
+        "type": "error",
+        "error": {"type": type(exc).__name__, "message": _chat_error_message(exc)},
+    }
+    yield f"event: error\ndata: {json.dumps(payload)}\n\n"
 
 
 @router.get("/admin/api/status")

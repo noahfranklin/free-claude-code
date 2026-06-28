@@ -3,8 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Free Claude Code Admin</title>
-    <link rel="icon" href="data:," />
+    <meta name="color-scheme" content="light dark" />
+    <title>Free Claude Code · Admin</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='15' font-weight='700' fill='white' text-anchor='middle'%3EFC%3C/text%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="/admin/assets/admin.css" />
   </head>
   <body>
@@ -18,12 +22,19 @@
           </div>
         </div>
         <nav id="sectionNav" class="section-nav" aria-label="Admin views"></nav>
+        <div class="sidebar-foot">
+          Local-only admin · 127.0.0.1<br />
+          Edit keys, route models, check provider health.
+        </div>
       </aside>
 
       <main class="main">
         <header class="topbar">
           <div>
             <h2 id="pageTitle">Providers</h2>
+            <p class="subtitle">
+              Configure providers, route models, and verify what's working — all locally.
+            </p>
           </div>
         </header>
 
@@ -63,6 +74,53 @@
               class="form-sections"
               aria-label="Messaging configuration"
             ></div>
+          </section>
+
+          <section id="view-chat" class="admin-view chat-view" data-view="chat" hidden>
+            <div class="chat-shell">
+              <div id="chatScroll" class="chat-scroll">
+                <div id="chatEmpty" class="chat-empty">
+                  <div class="chat-empty-mark">FC</div>
+                  <h3>How can I help today?</h3>
+                  <p>Chat through your configured free providers, fully local.</p>
+                </div>
+                <div id="chatLog" class="chat-log" aria-live="polite"></div>
+              </div>
+              <div class="chat-composer-wrap">
+                <form id="chatForm" class="chat-composer">
+                  <textarea
+                    id="chatInput"
+                    class="chat-input"
+                    rows="1"
+                    placeholder="Message Free Claude Code…"
+                    aria-label="Message"
+                  ></textarea>
+                  <div class="chat-composer-bar">
+                    <select
+                      id="chatModel"
+                      class="chat-model"
+                      aria-label="Model"
+                    ></select>
+                    <div class="chat-composer-actions">
+                      <button
+                        id="chatNew"
+                        class="ghost-button"
+                        type="button"
+                      >
+                        New chat
+                      </button>
+                      <button
+                        id="chatSend"
+                        class="primary-button"
+                        type="submit"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
           </section>
         </div>
       </main>
